@@ -24,7 +24,7 @@ def get_fqdn():
         logging.error(f"Error retrieving FQDN: {e}")
         return None
 
-def print_summary(scanned_files, excluded_files, malicious_files, clean_files, grpc_time, total_elapsed, log_file_path, fqdn=None):
+def print_summary(scanned_files, excluded_files, malicious_files, clean_files, grpc_time, total_elapsed, log_file_path, detailed_results_file, fqdn=None):
     print(f"\n########## SUMMARY ##########")
     print(f"\n ********** HOST INFO **********")
     if fqdn:
@@ -38,6 +38,7 @@ def print_summary(scanned_files, excluded_files, malicious_files, clean_files, g
     print(f"Total scan time: {grpc_time:0.2f} seconds")
     print(f"Total execution time: {total_elapsed:0.2f} seconds")
     print(f"Log file: {log_file_path}")
+    print(f"Detailed results file: {detailed_results_file}")
     print(f"******************************")
 
     if excluded_files:
@@ -66,7 +67,11 @@ def scan_directory(directory, exclude, addr, region, api_key, tls, ca_cert, tags
     else:
         handle = amaas.grpc.init(addr, api_key, tls, ca_cert)
 
-    print("Scanning files...")
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    detailed_results_file = os.path.join(os.path.dirname(log_file_path), f"detailed_scan_results_{now}.json")
+    with open(detailed_results_file, 'w') as f:
+        f.write("[")
+
     for root, dirs, files in os.walk(directory):
         for file in files:
             if any(file.endswith(ext) for ext in exclude):
@@ -79,6 +84,11 @@ def scan_directory(directory, exclude, addr, region, api_key, tls, ca_cert, tags
                 result = amaas.grpc.scan_file(handle, file_path, tags)
                 elapsed = time.perf_counter() - s
                 grpc_time += elapsed
+
+                # Write handle response to the detailed results file
+                with open(detailed_results_file, 'a') as f:
+                    f.write(result + ",\n")
+
                 result_json = json.loads(result)  # Assume result is a JSON string
                 if result_json["foundMalwares"]:
                     malicious_files.append(file_path)
@@ -89,6 +99,10 @@ def scan_directory(directory, exclude, addr, region, api_key, tls, ca_cert, tags
                 scanned_files.append(file_path)
             except Exception as e:
                 logging.error(f"Error scanning {file_path}: {e}")
+
+    # Close the JSON array in the detailed results file
+    with open(detailed_results_file, 'a') as f:
+        f.write("]")
 
     amaas.grpc.quit(handle)
     return scanned_files, excluded_files, malicious_files, clean_files, grpc_time
@@ -120,4 +134,6 @@ if __name__ == "__main__":
     scanned_files, excluded_files, malicious_files, clean_files, grpc_time = scan_directory(args.directory, args.exclude, args.addr, args.region, args.api_key, args.tls, args.ca_cert, args.tags)
     total_elapsed = time.perf_counter() - total_start_time
 
-    print_summary(scanned_files, excluded_files, malicious_files, clean_files, grpc_time, total_elapsed, log_file_path, fqdn)
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    detailed_results_file = os.path.join(os.path.dirname(log_file_path), f"detailed_scan_results_{now}.json")
+    print_summary(scanned_files, excluded_files, malicious_files, clean_files, grpc_time, total_elapsed, log_file_path, detailed_results_file, fqdn)
